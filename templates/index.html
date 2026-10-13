@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MGC Sales Helper</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 820px; margin: 1.5rem auto; padding: 0 1rem; line-height: 1.45; color: #222; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.15rem; margin-top: 1.75rem; border-top: 1px solid #ccc; padding-top: 1rem; }
+    .muted { color: #555; font-size: 0.95rem; }
+    label { display: block; margin-top: 0.6rem; font-size: 0.95rem; }
+    input[type=text], input[type=number], select, textarea {
+      width: 100%; max-width: 420px; padding: 0.35rem; box-sizing: border-box;
+    }
+    textarea { min-height: 4rem; max-width: 100%; }
+    button { margin-top: 0.75rem; padding: 0.4rem 0.9rem; cursor: pointer; }
+    .result, .error {
+      margin-top: 1rem; padding: 0.75rem 1rem; border: 1px solid #ccc; background: #fafafa;
+      white-space: pre-wrap;
+    }
+    .error { border-color: #a44; background: #fff5f5; }
+    .warning { margin-top: 0.5rem; font-weight: bold; }
+    .sources { margin-top: 0.75rem; }
+    .sources li { margin-bottom: 0.4rem; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; max-width: 520px; }
+    @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>MGC Sales Helper</h1>
+  <p class="muted">Document answers + intake lead scoring. Local assessment UI — not a production CRM.</p>
+  <p class="muted">Model file: {% if model_present %}found{% else %}<strong>missing</strong>{% endif %} ({{ model_path }})</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="error">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- ========== SECTION A ========== -->
+  <h2>Section A — Ask about MGC properties</h2>
+  <p class="muted">Answers are grounded in the three project documents. Every answer should cite document + section.</p>
+  <form method="post" action="{{ url_for('ask') }}">
+    <label for="question">Question</label>
+    <textarea id="question" name="question" required placeholder="e.g. What's the base price of a 2-bed in Block B?">{{ ask_question or '' }}</textarea>
+    <button type="submit">Ask</button>
+  </form>
+
+  {% if ask_error %}
+    <div class="error">
+      <strong>Error:</strong> {{ ask_error }}
+      {% if ask_error_detail %}<div class="muted">{{ ask_error_detail }}</div>{% endif %}
+    </div>
+  {% endif %}
+
+  {% if ask_answer %}
+    <div class="result">
+      <div><strong>Intent:</strong> {{ ask_intent }}</div>
+      <div style="margin-top:0.75rem;">{{ ask_answer }}</div>
+      {% if ask_sources %}
+        <div class="sources">
+          <strong>Sources</strong>
+          <ul>
+            {% for s in ask_sources %}
+              <li>
+                <strong>{{ s.document_title }}</strong> — § {{ s.section }}
+                <br><span class="muted">{{ s.filename }}</span>
+                {% if s.excerpt %}<br><em>"{{ s.excerpt }}"</em>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <!-- ========== SECTION B ========== -->
+  <h2>Section B — Score a lead (intake-time)</h2>
+  <p class="muted">
+    Uses only intake features: {{ feature_columns|join(', ') }}.
+    Post-intake activity and <code>converted</code> are not accepted.
+  </p>
+
+  <form method="post" action="{{ url_for('score') }}">
+    <div class="grid-2">
+      <div>
+        <label for="source">Source *</label>
+        <select id="source" name="source" required>
+          <option value="">— select —</option>
+          {% for s in source_choices %}
+            <option value="{{ s }}" {% if score_form and score_form.source == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="city">City *</label>
+        <input type="text" id="city" name="city" required
+               value="{{ score_form.city if score_form else '' }}"
+               placeholder="Islamabad / ISB / Rawalpindi">
+      </div>
+      <div>
+        <label for="area">Area (optional)</label>
+        <input type="text" id="area" name="area"
+               value="{{ score_form.area if score_form else '' }}"
+               placeholder="GT Road Corridor">
+      </div>
+      <div>
+        <label for="property_type">Property type *</label>
+        <select id="property_type" name="property_type" required>
+          <option value="">— select —</option>
+          {% for p in property_type_choices %}
+            <option value="{{ p }}" {% if score_form and score_form.property_type == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="budget_pkr_lac">Budget (PKR lac, optional)</label>
+        <input type="text" id="budget_pkr_lac" name="budget_pkr_lac"
+               value="{{ score_form.budget_pkr_lac if score_form else '' }}"
+               placeholder="120">
+      </div>
+      <div>
+        <label for="bedrooms">Bedrooms (optional)</label>
+        <input type="text" id="bedrooms" name="bedrooms"
+               value="{{ score_form.bedrooms if score_form else '' }}"
+               placeholder="2 (leave blank for Plot)">
+      </div>
+      <div>
+        <label for="is_overseas">Overseas buyer (0/1)</label>
+        <select id="is_overseas" name="is_overseas">
+          <option value="0" {% if not score_form or score_form.is_overseas != '1' %}selected{% endif %}>0 — No</option>
+          <option value="1" {% if score_form and score_form.is_overseas == '1' %}selected{% endif %}>1 — Yes</option>
+        </select>
+      </div>
+      <div>
+        <label for="referred_by_existing_client">Referred by existing client (0/1)</label>
+        <select id="referred_by_existing_client" name="referred_by_existing_client">
+          <option value="0" {% if not score_form or score_form.referred_by_existing_client != '1' %}selected{% endif %}>0 — No</option>
+          <option value="1" {% if score_form and score_form.referred_by_existing_client == '1' %}selected{% endif %}>1 — Yes</option>
+        </select>
+      </div>
+      <div>
+        <label for="has_financing_approved">Financing approved (0/1)</label>
+        <select id="has_financing_approved" name="has_financing_approved">
+          <option value="0" {% if not score_form or score_form.has_financing_approved != '1' %}selected{% endif %}>0 — No</option>
+          <option value="1" {% if score_form and score_form.has_financing_approved == '1' %}selected{% endif %}>1 — Yes</option>
+        </select>
+      </div>
+    </div>
+    <button type="submit">Score lead</button>
+  </form>
+
+  {% if score_error %}
+    <div class="error"><strong>Validation / scoring error:</strong> {{ score_error }}</div>
+  {% endif %}
+
+  {% if score_result %}
+    <div class="result">
+      <div><strong>Predicted conversion probability:</strong> {{ score_result.conversion_probability_pct }}%</div>
+      <div class="muted">(raw probability: {{ '%.4f'|format(score_result.conversion_probability) }})</div>
+      <p class="warning">{{ score_result.disclaimer }}</p>
+      <p class="muted">Label: {{ score_result.label }}</p>
+    </div>
+  {% endif %}
+
+  <p class="muted" style="margin-top:2rem;">Health: <a href="{{ url_for('health') }}">/health</a></p>
+</body>
+</html>
